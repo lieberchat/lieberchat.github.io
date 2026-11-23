@@ -43,6 +43,8 @@ form input{max-width:none;flex:1;min-width:0}
 form button{padding:14px 16px}
 .anexo{display:flex;align-items:center;justify-content:center;width:46px;flex:none;padding:0;background:var(--card);color:var(--rosa);border-radius:14px;cursor:pointer}
 .anexo svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+header .sec svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;display:block}
+.btn-chamada{display:block;margin-top:6px;padding:9px 12px;border-radius:12px;background:#000;border:1px solid var(--rosa);color:var(--rosa);text-align:center;font-weight:600;text-decoration:none}
 .item.nova{border:1.5px solid var(--rosa)}
 .item.nova span,.item.nova small{color:var(--rosa);font-weight:600}
 .erro{color:#ff9db8;font-size:.85rem;padding:6px 16px;text-align:center}
@@ -71,7 +73,7 @@ form button{padding:14px 16px}
 </section>
 
 <section id="sala" class="tela">
-  <header><button id="voltar" class="sec">Voltar</button><strong id="tituloSala"></strong><span></span></header>
+  <header><button id="voltar" class="sec">Voltar</button><strong id="tituloSala"></strong><button id="chamada" class="sec" aria-label="Iniciar chamada"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg></button></header>
   <div id="lista"></div>
   <div id="erro" class="erro" hidden></div>
   <form id="form">
@@ -282,7 +284,7 @@ function abrirSala(id, titulo){
       if (typeof m.video === 'string' && m.video.startsWith('https://res.cloudinary.com/')) {
         const v = document.createElement('video'); v.src = m.video; v.controls = true; v.preload = 'metadata'; v.playsInline = true; el.append(v);
       }
-      if (m.text) { const t = document.createElement('div'); t.textContent = m.text; el.append(t); }
+      if (m.text) { const t = document.createElement('div'); montarTexto(t, m.text); el.append(t); }
       const h = document.createElement('div'); h.className = 'hora';
       h.textContent = m.createdAt ? m.createdAt.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
       el.append(h); lista.append(el);
@@ -332,6 +334,35 @@ $('arquivo').addEventListener('change', async e => {
   } catch (err) { console.error(err); aviso('erro', 'Não consegui processar a imagem.'); }
 });
 
+/* ---------- chamada (Jitsi, sem câmera) ---------- */
+const SERVIDOR_CHAMADA = 'meet.ffmuc.net';
+const CFG_CHAMADA = '#config.startWithVideoMuted=true&config.startWithAudioMuted=false';
+const RE_CHAMADA = /https:\/\/meet\.ffmuc\.net\/(lc-[0-9a-f]{20})/;
+const linkApp = sala => 'org.jitsi.meet://' + SERVIDOR_CHAMADA + '/' + sala + CFG_CHAMADA;
+
+function montarTexto(el, texto){
+  const m = RE_CHAMADA.exec(texto);
+  if (!m) { el.textContent = texto; return; }
+  el.textContent = texto.replace(m[0], '').trim();
+  const a = document.createElement('a');
+  a.className = 'btn-chamada'; a.textContent = 'Entrar na chamada'; a.href = linkApp(m[1]);
+  el.append(a);
+}
+
+async function salaDaChamada(){
+  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('lieberchat:' + salaAtual));
+  return 'lc-' + [...new Uint8Array(h)].slice(0, 10).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+$('chamada').onclick = async () => {
+  if (!salaAtual) return;
+  try {
+    const sala = await salaDaChamada();
+    await enviar({ text: 'Chamada: https://' + SERVIDOR_CHAMADA + '/' + sala });
+    location.href = linkApp(sala);
+  } catch (err) { console.error(err); aviso('erro', 'Não consegui iniciar a chamada.'); }
+};
+
 const CLOUD = 'ze9kmncy', PRESET = 'lieberchat';
 
 function subirVideo(file){
@@ -356,7 +387,7 @@ $('arquivoV').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = '';
   if (!f) return;
   if (!f.type.startsWith('video/')) return aviso('erro', 'Escolha um arquivo de vídeo.');
-  if (f.size > 50 * 1024 * 1024) return aviso('erro', 'Vídeo grande demais. O limite é 50 MB.');
+  if (f.size > 100 * 1024 * 1024) return aviso('erro', 'Vídeo grande demais. O limite é 100 MB.');
   try {
     aviso('erro', 'Enviando vídeo… 0%');
     const url = await subirVideo(f);
