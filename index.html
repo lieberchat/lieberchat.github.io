@@ -35,12 +35,16 @@ header button{padding:8px 14px;font-size:.9rem}
 .msg.eu{align-self:flex-end;background:var(--rosa);color:#000;border-bottom-left-radius:18px;border-bottom-right-radius:5px}
 .msg .nome{font-size:.75rem;color:var(--rosa);font-weight:600;margin-bottom:2px}
 .msg .hora{font-size:.68rem;opacity:.6;margin-top:3px;text-align:right}
-.msg img,.msg video{max-width:100%;border-radius:12px;display:block;margin-bottom:4px}
+.msg img{max-width:min(68vw,300px);border-radius:12px;display:block;margin-bottom:4px}
+.msg video{width:min(68vw,300px);max-height:48vh;background:#000;border-radius:12px;display:block;margin-bottom:4px}
 .vazio{margin:auto;color:var(--mudo);text-align:center}
 form{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0));border-top:1px solid #251e23}
 form input{max-width:none;flex:1;min-width:0}
-form button,.anexo{padding:14px 12px}
-.anexo{background:var(--card);color:var(--rosa)}
+form button{padding:14px 16px}
+.anexo{display:flex;align-items:center;justify-content:center;width:46px;flex:none;padding:0;background:var(--card);color:var(--rosa);border-radius:14px;cursor:pointer}
+.anexo svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.item.nova{border:1.5px solid var(--rosa)}
+.item.nova span,.item.nova small{color:var(--rosa);font-weight:600}
 .erro{color:#ff9db8;font-size:.85rem;padding:6px 16px;text-align:center}
 </style>
 </head>
@@ -71,9 +75,9 @@ form button,.anexo{padding:14px 12px}
   <div id="lista"></div>
   <div id="erro" class="erro" hidden></div>
   <form id="form">
-    <label class="anexo">Foto<input id="arquivo" type="file" accept="image/*" hidden></label>
-    <label class="anexo">Vídeo<input id="arquivoV" type="file" accept="video/*" hidden></label>
-    <input id="texto" maxlength="1000" placeholder="Escreva uma mensagem" autocomplete="off">
+    <label class="anexo" aria-label="Enviar foto"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="M4 18l5-5 4 4 3-3 4 4"/></svg><input id="arquivo" type="file" accept="image/*" hidden></label>
+    <label class="anexo" aria-label="Enviar vídeo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="M16 10l5-3v10l-5-3z"/></svg><input id="arquivoV" type="file" accept="video/*" hidden></label>
+    <input id="texto" maxlength="1000" placeholder="Mensagem" autocomplete="off">
     <button type="submit">Enviar</button>
   </form>
 </section>
@@ -124,6 +128,7 @@ function erroAuth(e){
 }
 
 $('btnAuth').onclick = async () => {
+  try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
   const nick = $('nick').value.trim(), nl = nick.toLowerCase(), senha = $('senha').value;
   if (!/^[a-z0-9_.]{3,20}$/.test(nl)) return aviso('erroAuth', 'O nick deve ter de 3 a 20 caracteres: letras, números, _ ou .');
   if (senha.length < 6) return aviso('erroAuth', 'A senha precisa ter pelo menos 6 caracteres.');
@@ -152,28 +157,77 @@ onAuthStateChanged(auth, async u => {
   } catch (e) { console.error(e); aviso('erroAuth', 'Não consegui carregar sua conta.'); tela('auth'); }
 });
 
-$('sair').onclick = () => { cancelaChats?.(); cancelaSala?.(); signOut(auth); };
+$('sair').onclick = () => { cancelaChats?.(); cancelaSala?.(); pararVigias(); salaAtual = null; signOut(auth); };
 
 /* ---------- lista de conversas ---------- */
+let listaChats = [];
+const naoLidas = new Set(), ouvintes = new Map();
+const vistoKey = id => 'visto:' + me.uid + ':' + id;
+const lerVisto = id => Number(guarda.ler(vistoKey(id)) || 0);
+
+function atualizarTitulo(){ document.title = naoLidas.size ? '(' + naoLidas.size + ') lieber-chat' : 'lieber-chat'; }
+function marcarVisto(id){ guarda.gravar(vistoKey(id), String(Date.now())); if (naoLidas.delete(id)) { desenharLista(); atualizarTitulo(); } }
+
+let audioCtx = null;
+function avisar(){
+  try { navigator.vibrate?.(150); } catch {}
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination); o.frequency.value = 880;
+    g.gain.setValueAtTime(.12, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001, audioCtx.currentTime + .25);
+    o.start(); o.stop(audioCtx.currentTime + .25);
+  } catch {}
+  try { if (document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification('lieber-chat', { body: 'Nova mensagem' }); } catch {}
+}
+
+function vigiar(id){
+  let inicial = true;
+  const un = onSnapshot(query(msgCol(id), orderBy('createdAt', 'desc'), limit(1)), snap => {
+    const d = snap.docs[0]?.data({ serverTimestamps: 'estimate' });
+    if (d) {
+      const t = d.createdAt ? d.createdAt.toMillis() : Date.now();
+      if (d.uid !== me.uid && salaAtual !== id && t > lerVisto(id)) {
+        naoLidas.add(id); desenharLista(); atualizarTitulo();
+        if (!inicial) avisar();
+      }
+      if (salaAtual === id) guarda.gravar(vistoKey(id), String(Date.now()));
+    }
+    inicial = false;
+  }, e => console.error(e));
+  ouvintes.set(id, un);
+}
+
+function pararVigias(){ for (const un of ouvintes.values()) un(); ouvintes.clear(); naoLidas.clear(); listaChats = []; atualizarTitulo(); }
+
+function desenharLista(){
+  const box = $('itens'); box.replaceChildren();
+  for (const c of listaChats) box.append(botaoSala(c.id, c.nome));
+  if (!listaChats.length) { const p = document.createElement('p'); p.className = 'vazio'; p.textContent = 'Nenhuma conversa ainda. Adicione alguém pelo nick.'; box.append(p); }
+}
+
 function iniciar(uid, nick){
   me = { uid, nick };
   $('meuNick').textContent = nick;
   tela('lista-tela');
-  cancelaChats?.();
+  cancelaChats?.(); pararVigias();
   cancelaChats = onSnapshot(query(collection(db, 'chats'), where('members', 'array-contains', uid)), snap => {
-    const box = $('itens'); box.replaceChildren();
-    const chats = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    listaChats = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .map(c => ({ id: c.id, nome: c.names?.[c.members.find(m => m !== uid)] || 'Conversa' }))
       .sort((a, b) => a.nome.localeCompare(b.nome));
-    for (const c of chats) box.append(botaoSala(c.id, c.nome, 'privada'));
-    if (!chats.length) { const p = document.createElement('p'); p.className = 'vazio'; p.textContent = 'Nenhuma conversa ainda. Adicione alguém pelo nick.'; box.append(p); }
+    const ids = new Set(listaChats.map(c => c.id));
+    for (const [id, un] of ouvintes) if (!ids.has(id)) { un(); ouvintes.delete(id); naoLidas.delete(id); }
+    for (const id of ids) if (!ouvintes.has(id)) vigiar(id);
+    desenharLista();
   }, e => { console.error(e); aviso('erroLista', 'Não consegui carregar suas conversas.'); });
 }
 
-function botaoSala(id, nome, tipo){
-  const b = document.createElement('button'); b.className = 'item';
+function botaoSala(id, nome){
+  const nova = naoLidas.has(id);
+  const b = document.createElement('button'); b.className = 'item' + (nova ? ' nova' : '');
   const n = document.createElement('span'); n.textContent = nome;
-  const t = document.createElement('small'); t.textContent = tipo;
+  const t = document.createElement('small'); t.textContent = nova ? 'nova mensagem' : 'privada';
   b.append(n, t); b.onclick = () => abrirSala(id, nome); return b;
 }
 
@@ -199,7 +253,7 @@ $('btnAdd').onclick = async () => {
 const msgCol = id => collection(db, 'chats', id, 'messages');
 
 function abrirSala(id, titulo){
-  salaAtual = id; $('tituloSala').textContent = titulo;
+  salaAtual = id; $('tituloSala').textContent = titulo; marcarVisto(id);
   $('lista').replaceChildren(); aviso('erro', '');
   tela('sala');
   cancelaSala?.();
@@ -233,7 +287,7 @@ function abrirSala(id, titulo){
   }, e => { console.error(e); aviso('erro', 'Não consegui carregar as mensagens.'); });
 }
 
-$('voltar').onclick = () => { cancelaSala?.(); salaAtual = null; tela('lista-tela'); };
+$('voltar').onclick = () => { if (salaAtual) marcarVisto(salaAtual); cancelaSala?.(); salaAtual = null; tela('lista-tela'); };
 
 async function enviar(dados){
   try { await addDoc(msgCol(salaAtual), { name: me.nick, uid: me.uid, createdAt: serverTimestamp(), ...dados }); return true; }
