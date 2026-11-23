@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>lieber-chat</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#000;--card:#161216;--rosa:#f8c8dc;--branco:#fff;--mudo:#9a8f96;font-family:'Outfit',system-ui,sans-serif}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:var(--bg);color:var(--branco)}
+body{display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0)}
+.tela{display:none;flex:1;min-height:0;flex-direction:column}
+.tela.ativa{display:flex}
+#auth{justify-content:center;align-items:center;padding:24px;gap:12px;text-align:center}
+#auth h1{font-size:2rem;font-weight:600;color:var(--rosa)}
+#auth p{color:var(--mudo)}
+input{font:inherit;color:var(--branco);background:var(--card);border:1.5px solid #2e262c;border-radius:14px;padding:14px 16px;width:100%;max-width:340px;outline:none}
+input:focus-visible{border-color:var(--rosa)}
+button,.anexo{font:inherit;font-weight:600;border:0;border-radius:14px;padding:14px 20px;background:var(--rosa);color:#000;cursor:pointer;text-align:center}
+button:focus-visible{outline:2px solid var(--branco);outline-offset:2px}
+.link{background:none;color:var(--mudo);font-weight:500;padding:8px}
+.sec{background:var(--card);color:var(--rosa)}
+header{padding:12px 16px;border-bottom:1px solid #251e23;display:flex;gap:10px;align-items:center;justify-content:space-between}
+header strong{color:var(--rosa);font-size:1.1rem}
+header button{padding:8px 14px;font-size:.9rem}
+.add{display:flex;gap:8px;padding:12px 14px}
+.add input{max-width:none;flex:1}
+.itens{flex:1;overflow-y:auto;padding:4px 14px 14px;display:flex;flex-direction:column;gap:8px}
+.item{background:var(--card);color:var(--branco);text-align:left;font-weight:500;display:flex;justify-content:space-between}
+.item small{color:var(--mudo);font-weight:400}
+#lista{flex:1;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:8px}
+.msg{max-width:80%;padding:9px 13px;border-radius:18px;background:var(--card);align-self:flex-start;border-bottom-left-radius:5px;overflow-wrap:anywhere}
+.msg.eu{align-self:flex-end;background:var(--rosa);color:#000;border-bottom-left-radius:18px;border-bottom-right-radius:5px}
+.msg .nome{font-size:.75rem;color:var(--rosa);font-weight:600;margin-bottom:2px}
+.msg .hora{font-size:.68rem;opacity:.6;margin-top:3px;text-align:right}
+.msg img,.msg video{max-width:100%;border-radius:12px;display:block;margin-bottom:4px}
+.vazio{margin:auto;color:var(--mudo);text-align:center}
+form{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0));border-top:1px solid #251e23}
+form input{max-width:none;flex:1;min-width:0}
+form button,.anexo{padding:14px 12px}
+.anexo{background:var(--card);color:var(--rosa)}
+.erro{color:#ff9db8;font-size:.85rem;padding:6px 16px;text-align:center}
+</style>
+</head>
+<body>
+
+<section id="auth" class="tela ativa">
+  <h1>lieber-chat</h1>
+  <p id="authSub">Entre com o seu nick.</p>
+  <input id="nick" maxlength="20" placeholder="Nick (letras, números, _ ou .)" autocapitalize="none" autocomplete="username">
+  <input id="senha" type="password" placeholder="Senha (mínimo 6 caracteres)" autocomplete="current-password">
+  <div id="erroAuth" class="erro" hidden></div>
+  <button id="btnAuth">Entrar</button>
+  <button id="trocar" class="link">Não tenho conta. Criar uma</button>
+</section>
+
+<section id="lista-tela" class="tela">
+  <header><strong id="meuNick"></strong><button id="sair" class="sec">Sair</button></header>
+  <div class="add">
+    <input id="novoNick" placeholder="Adicionar pelo nick" autocapitalize="none" autocomplete="off">
+    <button id="btnAdd">Adicionar</button>
+  </div>
+  <div id="erroLista" class="erro" hidden></div>
+  <div id="itens" class="itens"></div>
+</section>
+
+<section id="sala" class="tela">
+  <header><button id="voltar" class="sec">Voltar</button><strong id="tituloSala"></strong><span></span></header>
+  <div id="lista"></div>
+  <div id="erro" class="erro" hidden></div>
+  <form id="form">
+    <label class="anexo">Foto<input id="arquivo" type="file" accept="image/*" hidden></label>
+    <label class="anexo">Vídeo<input id="arquivoV" type="file" accept="video/*" hidden></label>
+    <input id="texto" maxlength="1000" placeholder="Escreva uma mensagem" autocomplete="off">
+    <button type="submit">Enviar</button>
+  </form>
+</section>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, doc, getDoc, setDoc, addDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const app = initializeApp({
+  apiKey: "AIzaSyDkwniUzjwAbJZtFbqv1aS_zvwbMuD1GSU",
+  authDomain: "lieber-chat.firebaseapp.com",
+  projectId: "lieber-chat",
+  storageBucket: "lieber-chat.firebasestorage.app",
+  messagingSenderId: "33380409521",
+  appId: "1:33380409521:web:f3682e0e1cebbfd683c290"
+});
+const auth = getAuth(app);
+const db = getFirestore(app);
+const $ = id => document.getElementById(id);
+
+let me = null, modoCriar = false, registrando = false;
+let cancelaChats = null, cancelaSala = null, salaAtual = null;
+
+function tela(id){ for (const t of document.querySelectorAll('.tela')) t.classList.toggle('ativa', t.id === id); }
+function aviso(id, t){ $(id).textContent = t || ''; $(id).hidden = !t; }
+const emailDe = nl => nl + '@lieber-chat.app';
+
+/* ---------- conta ---------- */
+$('trocar').onclick = () => {
+  modoCriar = !modoCriar;
+  $('btnAuth').textContent = modoCriar ? 'Criar conta' : 'Entrar';
+  $('authSub').textContent = modoCriar ? 'Escolha um nick único e uma senha.' : 'Entre com o seu nick.';
+  $('trocar').textContent = modoCriar ? 'Já tenho conta. Entrar' : 'Não tenho conta. Criar uma';
+  aviso('erroAuth', '');
+};
+
+function erroAuth(e){
+  const c = e.code || '';
+  if (c.includes('email-already-in-use')) return 'Esse nick já está em uso.';
+  if (c.includes('invalid-credential') || c.includes('wrong-password') || c.includes('user-not-found')) return 'Nick ou senha incorretos.';
+  if (c.includes('weak-password')) return 'A senha precisa ter pelo menos 6 caracteres.';
+  if (c.includes('operation-not-allowed')) return 'Ative o login por e-mail/senha no Firebase (Authentication).';
+  if (c.includes('network')) return 'Sem conexão. Tente de novo.';
+  return 'Não deu certo. Tente de novo.';
+}
+
+$('btnAuth').onclick = async () => {
+  const nick = $('nick').value.trim(), nl = nick.toLowerCase(), senha = $('senha').value;
+  if (!/^[a-z0-9_.]{3,20}$/.test(nl)) return aviso('erroAuth', 'O nick deve ter de 3 a 20 caracteres: letras, números, _ ou .');
+  if (senha.length < 6) return aviso('erroAuth', 'A senha precisa ter pelo menos 6 caracteres.');
+  aviso('erroAuth', '');
+  try {
+    if (modoCriar) {
+      registrando = true;
+      if ((await getDoc(doc(db, 'nicks', nl))).exists()) { registrando = false; return aviso('erroAuth', 'Esse nick já está em uso.'); }
+      const c = await createUserWithEmailAndPassword(auth, emailDe(nl), senha);
+      await setDoc(doc(db, 'users', c.user.uid), { nick, nl });
+      await setDoc(doc(db, 'nicks', nl), { uid: c.user.uid });
+      registrando = false;
+      iniciar(c.user.uid, nick);
+    } else {
+      await signInWithEmailAndPassword(auth, emailDe(nl), senha);
+    }
+  } catch (e) { registrando = false; console.error(e); aviso('erroAuth', erroAuth(e)); }
+};
+
+onAuthStateChanged(auth, async u => {
+  if (registrando) return;
+  if (!u) { me = null; tela('auth'); return; }
+  try {
+    const s = await getDoc(doc(db, 'users', u.uid));
+    iniciar(u.uid, s.exists() ? s.data().nick : u.email.split('@')[0]);
+  } catch (e) { console.error(e); aviso('erroAuth', 'Não consegui carregar sua conta.'); tela('auth'); }
+});
+
+$('sair').onclick = () => { cancelaChats?.(); cancelaSala?.(); signOut(auth); };
+
+/* ---------- lista de conversas ---------- */
+function iniciar(uid, nick){
+  me = { uid, nick };
+  $('meuNick').textContent = nick;
+  tela('lista-tela');
+  cancelaChats?.();
+  cancelaChats = onSnapshot(query(collection(db, 'chats'), where('members', 'array-contains', uid)), snap => {
+    const box = $('itens'); box.replaceChildren();
+    const chats = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .map(c => ({ id: c.id, nome: c.names?.[c.members.find(m => m !== uid)] || 'Conversa' }))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+    for (const c of chats) box.append(botaoSala(c.id, c.nome, 'privada'));
+    if (!chats.length) { const p = document.createElement('p'); p.className = 'vazio'; p.textContent = 'Nenhuma conversa ainda. Adicione alguém pelo nick.'; box.append(p); }
+  }, e => { console.error(e); aviso('erroLista', 'Não consegui carregar suas conversas.'); });
+}
+
+function botaoSala(id, nome, tipo){
+  const b = document.createElement('button'); b.className = 'item';
+  const n = document.createElement('span'); n.textContent = nome;
+  const t = document.createElement('small'); t.textContent = tipo;
+  b.append(n, t); b.onclick = () => abrirSala(id, nome); return b;
+}
+
+$('btnAdd').onclick = async () => {
+  const nl = $('novoNick').value.trim().toLowerCase();
+  aviso('erroLista', '');
+  if (!nl) return;
+  if (nl === me.nick.toLowerCase()) return aviso('erroLista', 'Esse é o seu próprio nick.');
+  try {
+    const n = await getDoc(doc(db, 'nicks', nl));
+    if (!n.exists()) return aviso('erroLista', 'Nenhum usuário com esse nick.');
+    const outro = n.data().uid;
+    const u = await getDoc(doc(db, 'users', outro));
+    const nickOutro = u.exists() ? u.data().nick : nl;
+    const id = [me.uid, outro].sort().join('_');
+    await setDoc(doc(db, 'chats', id), { members: [me.uid, outro], names: { [me.uid]: me.nick, [outro]: nickOutro } }, { merge: true });
+    $('novoNick').value = '';
+    abrirSala(id, nickOutro);
+  } catch (e) { console.error(e); aviso('erroLista', 'Não consegui adicionar. Tente de novo.'); }
+};
+
+/* ---------- sala ---------- */
+const msgCol = id => collection(db, 'chats', id, 'messages');
+
+function abrirSala(id, titulo){
+  salaAtual = id; $('tituloSala').textContent = titulo;
+  $('lista').replaceChildren(); aviso('erro', '');
+  tela('sala');
+  cancelaSala?.();
+  cancelaSala = onSnapshot(query(msgCol(id), orderBy('createdAt', 'desc'), limit(100)), snap => {
+    aviso('erro', '');
+    const lista = $('lista');
+    const perto = lista.scrollHeight - lista.scrollTop - lista.clientHeight < 160;
+    const docs = snap.docs.map(d => d.data({ serverTimestamps: 'estimate' })).reverse();
+    lista.replaceChildren();
+    if (!docs.length) {
+      const p = document.createElement('p'); p.className = 'vazio';
+      p.textContent = 'Nenhuma mensagem ainda. Mande a primeira.'; lista.append(p); return;
+    }
+    for (const m of docs) {
+      const el = document.createElement('div');
+      const meu = m.uid === me.uid;
+      el.className = 'msg' + (meu ? ' eu' : '');
+      if (!meu) { const n = document.createElement('div'); n.className = 'nome'; n.textContent = m.name; el.append(n); }
+      if (typeof m.img === 'string' && m.img.startsWith('data:image/')) {
+        const i = document.createElement('img'); i.src = m.img; i.alt = 'Imagem enviada'; el.append(i);
+      }
+      if (typeof m.video === 'string' && m.video.startsWith('https://res.cloudinary.com/')) {
+        const v = document.createElement('video'); v.src = m.video; v.controls = true; v.preload = 'metadata'; v.playsInline = true; el.append(v);
+      }
+      if (m.text) { const t = document.createElement('div'); t.textContent = m.text; el.append(t); }
+      const h = document.createElement('div'); h.className = 'hora';
+      h.textContent = m.createdAt ? m.createdAt.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+      el.append(h); lista.append(el);
+    }
+    if (perto || docs.at(-1).uid === me.uid) lista.scrollTop = lista.scrollHeight;
+  }, e => { console.error(e); aviso('erro', 'Não consegui carregar as mensagens.'); });
+}
+
+$('voltar').onclick = () => { cancelaSala?.(); salaAtual = null; tela('lista-tela'); };
+
+async function enviar(dados){
+  try { await addDoc(msgCol(salaAtual), { name: me.nick, uid: me.uid, createdAt: serverTimestamp(), ...dados }); return true; }
+  catch (e) { console.error(e); aviso('erro', 'Não deu pra enviar. Confira a conexão.'); return false; }
+}
+
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const texto = $('texto').value.trim();
+  if (!texto) return;
+  $('texto').value = '';
+  if (!(await enviar({ text: texto }))) $('texto').value = texto;
+});
+
+function reduzir(file){
+  return new Promise((ok, falha) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const max = 900, k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); ok(c.toDataURL('image/jpeg', 0.7));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); falha(new Error('imagem inválida')); };
+    img.src = url;
+  });
+}
+
+$('arquivo').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  if (!f.type.startsWith('image/')) return aviso('erro', 'Use o botão Vídeo pra enviar vídeos.');
+  try {
+    const dataUrl = await reduzir(f);
+    const legenda = $('texto').value.trim(); $('texto').value = '';
+    await enviar(legenda ? { img: dataUrl, text: legenda } : { img: dataUrl });
+  } catch (err) { console.error(err); aviso('erro', 'Não consegui processar a imagem.'); }
+});
+
+const CLOUD = 'ze9kmncy', PRESET = 'lieberchat';
+
+function subirVideo(file){
+  return new Promise((ok, falha) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', `https://api.cloudinary.com/v1_1/${CLOUD}/video/upload`);
+    x.upload.onprogress = e => { if (e.lengthComputable) aviso('erro', 'Enviando vídeo… ' + Math.round(e.loaded / e.total * 100) + '%'); };
+    x.onload = () => {
+      try {
+        const r = JSON.parse(x.responseText);
+        if (x.status === 200 && r.secure_url) ok(r.secure_url);
+        else falha(new Error(r.error?.message || 'erro ' + x.status));
+      } catch (err) { falha(err); }
+    };
+    x.onerror = () => falha(new Error('sem conexão'));
+    const f = new FormData(); f.append('file', file); f.append('upload_preset', PRESET);
+    x.send(f);
+  });
+}
+
+$('arquivoV').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  if (!f.type.startsWith('video/')) return aviso('erro', 'Escolha um arquivo de vídeo.');
+  if (f.size > 50 * 1024 * 1024) return aviso('erro', 'Vídeo grande demais. O limite é 50 MB.');
+  try {
+    aviso('erro', 'Enviando vídeo… 0%');
+    const url = await subirVideo(f);
+    aviso('erro', '');
+    const legenda = $('texto').value.trim(); $('texto').value = '';
+    await enviar(legenda ? { video: url, text: legenda } : { video: url });
+  } catch (err) {
+    console.error(err);
+    aviso('erro', 'Não consegui enviar o vídeo: ' + err.message);
+  }
+});
+</script>
+</body>
+</html>
