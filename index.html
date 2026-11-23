@@ -100,6 +100,10 @@ const app = initializeApp({
 const auth = getAuth(app);
 const db = getFirestore(app);
 const $ = id => document.getElementById(id);
+const guarda = {
+  ler(k){ try { return localStorage.getItem(k); } catch { return null; } },
+  gravar(k, v){ try { localStorage.setItem(k, v); } catch {} }
+};
 
 let me = null, modoCriar = false, registrando = false;
 let cancelaChats = null, cancelaSala = null, salaAtual = null;
